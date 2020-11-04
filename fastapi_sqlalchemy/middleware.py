@@ -11,6 +11,7 @@ from starlette.types import ASGIApp
 
 from fastapi_sqlalchemy.exceptions import MissingSessionError, SessionNotInitialisedError
 
+_Engine: Engine = None
 _Session: sessionmaker = None
 _session: ContextVar[Optional[Session]] = ContextVar("_session", default=None)
 
@@ -26,6 +27,7 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
         commit_on_exit: bool = False,
     ):
         super().__init__(app)
+        global _Engine
         global _Session
         engine_args = engine_args or {}
         self.commit_on_exit = commit_on_exit
@@ -34,10 +36,10 @@ class DBSessionMiddleware(BaseHTTPMiddleware):
         if not custom_engine and not db_url:
             raise ValueError("You need to pass a db_url or a custom_engine parameter.")
         if not custom_engine:
-            engine = create_engine(db_url, **engine_args)
+            _Engine = create_engine(db_url, **engine_args)
         else:
-            engine = custom_engine
-        _Session = sessionmaker(bind=engine, **session_args)
+            _Engine = custom_engine
+        _Session = sessionmaker(bind=_Engine, **session_args)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
         with db(commit_on_exit=self.commit_on_exit):
@@ -59,6 +61,11 @@ class DBSessionMeta(type):
             raise MissingSessionError
 
         return session
+
+
+    @property
+    def engine(self) -> Engine:
+        return _Engine
 
 
 class DBSession(metaclass=DBSessionMeta):
